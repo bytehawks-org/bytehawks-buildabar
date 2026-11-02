@@ -33,11 +33,12 @@ if py="$(command -v python3)"; then
     else
         row FAIL "python >= 3.9" "$("$py" -V 2>&1)"
     fi
+    # by import, not importlib.metadata: on Python 3.9 the latter does not find distributions whose normalized name differs (ruamel_yaml)
     for module in yaml ruamel.yaml; do
-        if version="$("$py" -c "import importlib.metadata as m; print(m.version('PyYAML' if '$module' == 'yaml' else 'ruamel.yaml'))" 2>&1)"; then
+        if version="$("$py" -c "import $module; print(getattr($module, '__version__', 'installed'))" 2>&1)"; then
             row OK "python: $module" "$version"
         else
-            row FAIL "python: $module" "cannot import ($py)"
+            row FAIL "python: $module" "cannot import ($py): $(printf '%s' "$version" | tail -n 1)"
         fi
     done
 fi
@@ -92,7 +93,12 @@ else
 fi
 
 # --- nfpm and git ----------------------------------------------------------------------------------------------------------
-if command -v nfpm >/dev/null; then row OK "nfpm version" "$(first_line nfpm --version)"; else row FAIL "nfpm version" "not found"; fi
+if command -v nfpm >/dev/null; then
+    # nfpm prints a banner before the version line
+    row OK "nfpm version" "$(nfpm --version 2>&1 | grep -m1 -Eo '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' || first_line nfpm --version)"
+else
+    row FAIL "nfpm version" "not found"
+fi
 if (cd "$tmp" && git init -q repo && cd repo && git -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m t); then row OK "git" "$(git --version)"; else row FAIL "git" "cannot commit"; fi
 
 # --- the sandboxes: informational, they need namespaces the host may refuse -----------------------------------------------------
