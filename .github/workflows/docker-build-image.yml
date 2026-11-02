@@ -80,6 +80,10 @@ jobs:
           username: ${{ vars.HARBOR_CICD_IMAGES_USER_NAME }}
           password: ${{ secrets.HARBOR_CICD_IMAGES_USER_PASSWORD }}
 
+      - name: Build date
+        id: date
+        run: echo "value=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
       - name: Determine build version
         id: version
         run: |
@@ -146,7 +150,7 @@ jobs:
           build-args: |
             ALPINE_VERSION=${{ matrix.alpine_variant.version }}
             VARIANT_NAME=${{ matrix.alpine_variant.name }}
-            BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+            BUILD_DATE=${{ steps.date.outputs.value }}
             VCS_REF=${{ github.sha }}
             VERSION=${{ steps.version.outputs.build_version }}
           cache-from: type=gha
