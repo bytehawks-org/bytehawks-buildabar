@@ -14,13 +14,14 @@ Alpine-based build container for ByteHawks – enabling transparent, auditable s
 - [Pulling Images](#pulling-images)
 - [Security Features](#security-features)
 - [Verification & Signing](#verification--signing)
+- [Using builda-bar with Distillery and Shaker](#using-builda-bar-with-distillery-and-shaker)
 - [Contents & Tools](#contents--tools)
 - [Build Information](#build-information)
 - [Contributing](#contributing)
 
 ## Overview
 
-**builda-bar** is a minimal Alpine Linux-based container designed for ByteHawks build orchestration and NIS2-compliant software supply chain management. It provides a transparent, auditable foundation for building statically compiled software with integrated security scanning and Software Bill of Materials (SBOM) generation.
+**builda-bar** is a minimal Alpine Linux-based container designed for ByteHawks build orchestration and NIS2-compliant software supply chain management. It is the environment for [**Distillery**](https://github.com/bytehawks-org/distillery) (declarative builds, artifacts, signing, packages, images) and [**Shaker**](https://github.com/bytehawks-org/shaker) (install, init, run and verify): every tool they need is in the image, so a job starts working instead of installing a toolchain. It provides a transparent, auditable foundation for building statically compiled software with integrated security scanning and Software Bill of Materials (SBOM) generation.
 
 ### Key Characteristics
 
@@ -317,49 +318,86 @@ spec:
             signatureFormat: cosign
 ```
 
+## Using builda-bar with Distillery and Shaker
+
+```bash
+# is everything there, and does it work? (exit 1 if something indispensable is missing)
+docker run --rm ghcr.io/bytehawks-org/builda-bar/builda-bar:stable-x86_64 builda-bar-selftest
+
+# build with Distillery: the repository is mounted, the toolchain is in the image
+docker run --rm -v "$PWD":/work -w /work ghcr.io/bytehawks-org/builda-bar/builda-bar:stable-x86_64 \
+  python /work/distillery/scripts/autobuilder.py build --package zlib --root /work/stage --artifacts-dir /work/dist
+
+# musl and static builds are what this image is for: Alpine is musl, `gcc -static` works
+#   autobuilder.py build --package nginx --with-deps --linkage static
+
+# Shaker's tests / non-root use
+docker run --rm -v "$PWD":/work -w /work/shaker -e BH_SHAKER_ALLOW_NONROOT=true <image> ./tests/run.sh
+```
+
+| You want | Run with |
+|---|---|
+| Distillery builds, `repro`, `package`, `scaffold`, `chain` | the default user `bh` (uid 1024); `/opt/bytehawks` and `/work` are writable |
+| Shaker `install` (users, ownership), the `unshare` sandbox | `--user root` (GitHub Actions: `container.options: --user root`) |
+| the `bwrap` / `unshare` sandboxes | a host that allows user namespaces: `--privileged` or `--security-opt seccomp=unconfined` |
+| Distillery and Shaker inside the image | `--build-arg DISTILLERY_REF=<tag-or-branch> --build-arg SHAKER_REF=<tag-or-branch>`; they land in `/opt/bytehawks/core/`, Shaker's `bin` is on `PATH`. Private repositories: `--secret id=gh_token,src=FILE` (the token is not kept in the image) |
+
+Distillery records the image in every manifest (`toolchain.builder_image`, from `BH_BUILDER_IMAGE`, set to `builda-bar:<variant>-alpine<version>`).
+The image is built by Alpine's musl: it produces the `amd64-musl` / `arm64-musl` artifacts and the apk packages; glibc artifacts need a Debian-based builder
+(Distillery's `docker/builder-glibc.Dockerfile`).
+
+### Checking the image
+
+`.github/workflows/docker-check-image.yml` builds the image on every pull request that touches it (all four Alpine variants on amd64, `stable` on arm64),
+without pushing, and runs `builda-bar-selftest` as `bh` and as root. The selftest checks the required tools, the Python modules Distillery imports
+(PyYAML, ruamel.yaml in `/opt/venv`), `bash` for Shaker, the user and directories, that `make` + `gcc` build a dynamic **and a static** program, that `gpg`
+signs and verifies, `nfpm`, `git`, and (as information) whether the two sandboxes are allowed on that host.
+
 ## Contents & Tools
 
-builda-bar includes a curated selection of tools for build orchestration and system configuration:
+builda-bar includes a curated selection of tools for build orchestration and system configuration. *Core* tools are in every Alpine variant (the build fails without them); *extras* are installed when the variant has them and `builda-bar-selftest` reports what is missing.
 
-### System Tools
-- `bash` – Advanced shell scripting
-- `coreutils` – Core POSIX utilities
-- `findutils` – File searching and processing
-- `grep` – Text pattern matching
-- `sed` – Stream editing and transformation
+### Core (in every variant)
 
-### Build & Compilation
-- `gcc` – GNU C Compiler (native code compilation)
-- `make` – Build automation
-- `cmake` – Cross-platform build configuration
-- `linux-headers` – Kernel header files for system-level compilation
-- `musl-dev` – musl C library development headers
+| Group | Packages | What for |
+|---|---|---|
+| Compilation | `build-base` (gcc, g++, make, musl-dev, binutils, patch), `gcc`, `make`, `musl-dev`, `linux-headers`, `cmake` | the C/C++ toolchain; `gcc -static` works (musl) |
+| Build helpers | `autoconf`, `automake`, `libtool`, `m4`, `flex`, `bison`, `pkgconf`, `perl` | sources that need `autoreconf`, parsers (PostgreSQL), OpenSSL's `Configure` |
+| Python | `python3`, `py3-pip`, `py3-virtualenv`; `/opt/venv` with `PyYAML` and `ruamel.yaml` (first on `PATH`) | Distillery; Shaker's optional JSON/YAML parsing |
+| Sources and archives | `git`, `git-perl`, `curl`, `wget`, `gnupg`, `tar`, `gzip`, `bzip2`, `xz`, `zstd`, `zip`, `unzip`, `file`, `openssh-client`, `ca-certificates` | fetching and verifying sources, signing |
+| Shell and system | `bash`, `coreutils`, `findutils`, `grep`, `sed`, `diffutils`, `util-linux` (`unshare`), `su-exec`, `tini`, `jq` | Shaker (bash >= 4.2 and the usual tools), scripts |
+| Isolation | `bubblewrap` | Distillery `--sandbox` (`bwrap` backend); `unshare` is the other one |
+| Packaging | `nfpm` (pinned `2.48.0`, SHA-256 verified, amd64 and arm64) | deb, rpm and apk packages |
+| Automation | `ansible` | infrastructure automation (inherited) |
 
-### Scripting & Automation
-- `python3` – Python 3 runtime
-- `py3-pip` – Python package manager
-- `ansible` – Infrastructure automation and configuration management
-- `perl` – Text processing and scripting
-- `git` – Version control system
-- `git-perl` – Perl modules for Git operations
+### Extras (when the Alpine variant has them)
 
-### Network & Transfer
-- `curl` – URL data transfer (HTTP/HTTPS/FTP)
-- `wget` – HTTP/FTP file download utility
-
-### System Configuration
-- `ca-certificates` – Root CA certificates for HTTPS verification
+`util-linux-misc` (`setpriv`, Shaker drops privileges with it), `skopeo` (copy and push OCI archives), `cosign` (sign images), `shellcheck` (Shaker's lint),
+`yq` (Shaker's YAML configuration), `dpkg` and `rpm` (inspect the packages Distillery writes), `rsync`, `openssl`, `py3-yaml`. What was not installed is listed in
+`/etc/builda-bar-missing` and by `builda-bar-selftest`.
 
 ### Environment Variables
 
 Container-set variables for build context:
 
 ```bash
-ALPINE_VERSION=3.21.5          # Alpine release version
-VARIANT_NAME=stable             # Variant name (stable, legacy, etc.)
-BUILD_CONTAINER=builda-bar      # Container identifier
-PYTHONUNBUFFERED=1              # Real-time Python output
+ALPINE_VERSION=3.21.5                      # Alpine release version
+VARIANT_NAME=stable                        # Variant name (stable, legacy, etc.)
+BUILD_CONTAINER=builda-bar                 # Container identifier
+BH_BUILDER_IMAGE=builda-bar:stable-alpine3.21.5   # recorded by Distillery in every manifest
+PYTHONUNBUFFERED=1                         # Real-time Python output
+PATH=/opt/venv/bin:/opt/bytehawks/core/shaker/bin:/usr/local/bin:...
 ```
+
+### Build arguments
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `ALPINE_VERSION`, `VARIANT_NAME` | `3.20`, `stable` | the Alpine release and the variant label |
+| `BUILD_DATE`, `VCS_REF`, `VERSION` | empty | OCI labels (set by the release workflow) |
+| `SOURCE_URL` | this repository | the `source`, `url` and `documentation` labels (change it when the repository is renamed) |
+| `NFPM_VERSION`, `NFPM_SHA256_AMD64`, `NFPM_SHA256_ARM64` | `2.48.0` + checksums | keep in step with Distillery's `packages.yaml` |
+| `DISTILLERY_REF`, `SHAKER_REF` | empty (not included) | tag or branch to bake into `/opt/bytehawks/core/` |
 
 ## Build Information
 
@@ -417,7 +455,8 @@ docker build --build-arg ALPINE_VERSION=3.21.5 \
   -t builda-bar:local-stable-x86_64 \
   -f Dockerfile .
 
-# Run container
+# Check it, then run it
+docker run --rm builda-bar:local-stable-x86_64 builda-bar-selftest
 docker run --rm -it builda-bar:local-stable-x86_64
 ```
 
