@@ -346,6 +346,12 @@ Distillery records the image in every manifest (`toolchain.builder_image`, from 
 The image is built by Alpine's musl: it produces the `amd64-musl` / `arm64-musl` artifacts and the apk packages; glibc artifacts need a Debian-based builder
 (Distillery's `docker/builder-glibc.Dockerfile`).
 
+### The entrypoint
+
+`docker run image` and `docker run image -c '...'` give bash, as the image always did. A command can also be given directly: `docker run image builda-bar-selftest`,
+`docker run image python script.py`, `docker run image sh -c '...'` (the first argument is run when it is a command on `PATH`; otherwise it is a script for bash).
+GitHub Actions `container:` jobs override the entrypoint anyway.
+
 ### Checking the image
 
 `.github/workflows/docker-check-image.yml` builds the image on every pull request that touches it (all four Alpine variants on amd64, `stable` on arm64),

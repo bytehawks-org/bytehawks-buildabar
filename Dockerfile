@@ -110,7 +110,8 @@ RUN --mount=type=secret,id=gh_token,required=false \
     done
 
 COPY scripts/selftest.sh /usr/local/bin/builda-bar-selftest
-RUN chmod 755 /usr/local/bin/builda-bar-selftest
+COPY scripts/entrypoint.sh /usr/local/bin/builda-bar-entrypoint
+RUN chmod 755 /usr/local/bin/builda-bar-selftest /usr/local/bin/builda-bar-entrypoint
 
 USER bh
 WORKDIR /home/bh
@@ -123,4 +124,5 @@ ENV BUILD_CONTAINER="builda-bar"
 # recorded by Distillery in the manifest of every unit built here (toolchain.builder_image)
 ENV BH_BUILDER_IMAGE="builda-bar:${VARIANT_NAME}-alpine${ALPINE_VERSION}"
 
-ENTRYPOINT ["/bin/bash"]
+# bash as before (`docker run image`, `docker run image -c ...`), and a command can be given directly (`docker run image python script.py`)
+ENTRYPOINT ["/usr/local/bin/builda-bar-entrypoint"]
