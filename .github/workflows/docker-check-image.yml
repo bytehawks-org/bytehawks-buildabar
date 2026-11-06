@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -27,12 +27,12 @@ jobs:
           - {name: stream,     version: "${{ vars.ALPINE_STREAM_VERSION || '3.22.2' }}",     platform: linux/amd64}
           - {name: stable,     version: "${{ vars.ALPINE_STABLE_VERSION || '3.21.5' }}",     platform: linux/arm64}
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
         if: matrix.platform == 'linux/arm64'
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Build (not pushed)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
