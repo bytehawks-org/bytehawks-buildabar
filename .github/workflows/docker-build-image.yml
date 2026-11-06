@@ -20,7 +20,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         alpine_variant:
@@ -46,7 +46,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Validate tag format
         if: startsWith(github.ref, 'refs/tags/')
@@ -61,20 +61,20 @@ jobs:
           echo "GITHUB_REF_NAME=${TAG}" >> $GITHUB_ENV
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY_GHCR }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Harbor Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY_HARBOR }}
           username: ${{ vars.HARBOR_CICD_IMAGES_USER_NAME }}
@@ -127,7 +127,7 @@ jobs:
 
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./
           file: ./Dockerfile
@@ -158,7 +158,7 @@ jobs:
           outputs: type=oci
 
   sign:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build
     strategy:
       matrix:
@@ -182,21 +182,21 @@ jobs:
 
     steps:
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY_GHCR }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Harbor Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY_HARBOR }}
           username: ${{ vars.HARBOR_CICD_IMAGES_USER_NAME }}
           password: ${{ secrets.HARBOR_CICD_IMAGES_USER_PASSWORD }}
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.0.0
+        uses: sigstore/cosign-installer@v4.1.3
         with:
           cosign-release: 'v3.0.2'
 
@@ -281,7 +281,7 @@ jobs:
           done
 
   create-manifest-indices:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build, sign]
     strategy:
       matrix:
@@ -310,14 +310,14 @@ jobs:
           regctl version
 
       - name: Log in to GitHub Container Registry (docker)
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY_GHCR }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Harbor Registry (docker)
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY_HARBOR }}
           username: ${{ vars.HARBOR_CICD_IMAGES_USER_NAME }}
@@ -470,7 +470,7 @@ jobs:
           echo "✓ Pushed manifest: $MANIFEST_TAG_L1"
 
   scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build, create-manifest-indices]
     strategy:
       matrix:
@@ -491,17 +491,17 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY_GHCR }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Harbor Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY_HARBOR }}
           username: ${{ vars.HARBOR_CICD_IMAGES_USER_NAME }}
@@ -525,7 +525,7 @@ jobs:
           echo "build_version=${BUILD_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Run Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.image.outputs.image_ref }}
           format: 'sarif'
@@ -535,28 +535,28 @@ jobs:
           version: 'v0.67.2'
 
       - name: Generate SBOM with Trivy (CycloneDX)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.image.outputs.image_ref }}
           format: 'cyclonedx'
           output: 'sbom-${{ steps.image.outputs.variant }}-amd64.json'
 
       - name: Upload Trivy SARIF to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: 'trivy-${{ steps.image.outputs.variant }}-amd64.sarif'
           category: 'trivy-${{ steps.image.outputs.variant }}-amd64'
 
       - name: Upload SBOM artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-${{ steps.image.outputs.variant }}-amd64
           path: sbom-*.json
           retention-days: 2555
 
       - name: Upload Scan Reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: scan-${{ steps.image.outputs.variant }}-amd64
           path: trivy-*.sarif
